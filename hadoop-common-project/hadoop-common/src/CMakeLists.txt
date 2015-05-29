@@ -219,6 +219,44 @@ else (USABLE_OPENSSL)
     SET(OPENSSL_SOURCE_FILES "")
 endif (USABLE_OPENSSL)
 
+SET(STORED_CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
+set_find_shared_library_without_version()
+SET(QAT_NAME "icp_qa_al_s")
+MESSAGE("CUSTOM_QAT_PREFIX = ${CUSTOM_QAT_PREFIX}")
+find_library(QAT_LIBRARY
+    NAMES ${QAT_NAME}
+    PATHS ${CUSTOM_QAT_PREFIX} ${CUSTOM_QAT_PREFIX}/lib
+          ${CUSTOM_QAT_PREFIX}/lib64 ${CUSTOM_QAT_LIB} NO_DEFAULT_PATH)
+find_library(QAT_LIBRARY NAMES ${QAT_NAME})
+find_path(QAT_INCLUDE_DIR
+    NAMES cpa.h
+    PATHS ${CUSTOM_QAT_PREFIX} ${CUSTOM_QAT_PREFIX}/include
+          ${CUSTOM_QAT_INCLUDE} NO_DEFAULT_PATH)
+find_path(QAT_INCLUDE_DIR NAMES cpa.h)
+SET(CMAKE_FIND_LIBRARY_SUFFIXES ${STORED_CMAKE_FIND_LIBRARY_SUFFIXES})
+SET(USABLE_QAT 0)
+if (QAT_LIBRARY AND QAT_INCLUDE_DIR)
+    GET_FILENAME_COMPONENT(HADOOP_QAT_LIBRARY ${QAT_LIBRARY} NAME)
+    SET(USABLE_QAT 1)
+endif (QAT_LIBRARY AND QAT_INCLUDE_DIR)
+if (USABLE_QAT)
+    SET(QAT_SOURCE_FILES
+        "${D}/crypto/qat/QatCipher.c"
+        "${D}/crypto/qat/QatMem.c"
+        "${D}/crypto/qat/qat_utils.c"
+        "${D}/crypto/qat/qat_parseconf.c"
+        "${D}/crypto/qat/qat_mem_utils.c")
+else (USABLE_QAT)
+    MESSAGE("Cannot find a usable Intel QuickAssist Technology library.  QAT_LIBRARY=${QAT_LIBRARY}, QAT_INCLUDE_DIR=${QAT_INCLUDE_DIR}, CUSTOM_QAT_LIB=${CUSTOM_QAT_LIB}, CUSTOM_QAT_PREFIX=${CUSTOM_QAT_PREFIX}, CUSTOM_QAT_INCLUDE=${CUSTOM_QAT_INCLUDE}")
+    IF(REQUIRE_QAT)
+        MESSAGE(FATAL_ERROR "Terminating build because require.openssl was specified.")
+    ENDIF(REQUIRE_QAT)
+    MESSAGE(FATAL_ERROR "qat library cannot found, stop.")
+    SET(QAT_LIBRARY "")
+    SET(QAT_INCLUDE_DIR "")
+    SET(QAT_SOURCE_FILES "")
+endif (USABLE_QAT)
+
 include_directories(
     ${GENERATED_JAVAH}
     main/native/src
@@ -230,6 +268,8 @@ include_directories(
     ${BZIP2_INCLUDE_DIR}
     ${SNAPPY_INCLUDE_DIR}
     ${OPENSSL_INCLUDE_DIR}
+    main/native/src/org/apache/hadoop/crypto
+    ${QAT_INCLUDE_DIR}
     ${D}/util
 )
 CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/config.h.cmake ${CMAKE_BINARY_DIR}/config.h)
@@ -249,6 +289,7 @@ add_dual_library(hadoop
     ${D}/io/compress/lz4/lz4hc.c
     ${SNAPPY_SOURCE_FILES}
     ${OPENSSL_SOURCE_FILES}
+    ${QAT_SOURCE_FILES}
     ${D}/io/compress/zlib/ZlibCompressor.c
     ${D}/io/compress/zlib/ZlibDecompressor.c
     ${BZIP2_SOURCE_FILES}

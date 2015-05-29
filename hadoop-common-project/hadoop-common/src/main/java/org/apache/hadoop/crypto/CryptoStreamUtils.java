@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.crypto.qat.QatMem;
 import org.apache.hadoop.fs.Seekable;
 
 import com.google.common.base.Preconditions;
@@ -35,11 +36,15 @@ public class CryptoStreamUtils {
   private static final int MIN_BUFFER_SIZE = 512;
   
   /** Forcibly free the direct buffer. */
-  public static void freeDB(ByteBuffer buffer) {
-    if (buffer instanceof sun.nio.ch.DirectBuffer) {
+  public static void freeDB(ByteBuffer buffer, boolean physicallyContiguous) {
+    if (physicallyContiguous) {
+      QatMem.release(buffer);
+    } else if (buffer instanceof sun.nio.ch.DirectBuffer) {
       final sun.misc.Cleaner bufferCleaner =
           ((sun.nio.ch.DirectBuffer) buffer).cleaner();
-      bufferCleaner.clean();
+      if (bufferCleaner != null) {
+        bufferCleaner.clean();
+      }
     }
   }
   
@@ -73,5 +78,13 @@ public class CryptoStreamUtils {
       return ((Seekable) in).getPos();
     }
     return 0;
+  }
+
+  public static ByteBuffer allocateBuffer(int capacity, boolean physicallyContiguous) {
+    if(!physicallyContiguous) {
+      return ByteBuffer.allocateDirect(capacity);
+    } else {
+      return QatMem.allocate(capacity);
+    }
   }
 }

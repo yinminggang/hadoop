@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.crypto.qat.QatAesCtrCryptoCodec;
 import org.apache.hadoop.fs.ByteBufferReadable;
 import org.apache.hadoop.fs.CanSetDropBehind;
 import org.apache.hadoop.fs.CanSetReadahead;
@@ -96,6 +97,8 @@ public class CryptoInputStream extends FilterInputStream implements
   private byte[] iv;
   private final boolean isByteBufferReadable;
   private final boolean isReadableByteChannel;
+
+  private boolean physicallyContiguous;
   
   /** DirectBuffer pool */
   private final Queue<ByteBuffer> bufferPool = 
@@ -122,8 +125,9 @@ public class CryptoInputStream extends FilterInputStream implements
     this.streamOffset = streamOffset;
     isByteBufferReadable = in instanceof ByteBufferReadable;
     isReadableByteChannel = in instanceof ReadableByteChannel;
-    inBuffer = ByteBuffer.allocateDirect(this.bufferSize);
-    outBuffer = ByteBuffer.allocateDirect(this.bufferSize);
+    physicallyContiguous = (codec instanceof QatAesCtrCryptoCodec) ? true : false;
+    inBuffer = CryptoStreamUtils.allocateBuffer(this.bufferSize, physicallyContiguous);
+    outBuffer = CryptoStreamUtils.allocateBuffer(this.bufferSize, physicallyContiguous);
     decryptor = getDecryptor();
     resetStreamOffset(streamOffset);
   }
@@ -166,40 +170,46 @@ public class CryptoInputStream extends FilterInputStream implements
       return n;
     } else {
       int n = 0;
+      int sum = 0;
       
       /*
        * Check whether the underlying stream is {@link ByteBufferReadable},
        * it can avoid bytes copy.
        */
-      if (usingByteBufferRead == null) {
-        if (isByteBufferReadable || isReadableByteChannel) {
-          try {
-            n = isByteBufferReadable ? 
-                ((ByteBufferReadable) in).read(inBuffer) : 
-                  ((ReadableByteChannel) in).read(inBuffer);
-            usingByteBufferRead = Boolean.TRUE;
-          } catch (UnsupportedOperationException e) {
+      do {
+        if (usingByteBufferRead == null) {
+          if (isByteBufferReadable || isReadableByteChannel) {
+            try {
+              n = isByteBufferReadable ? 
+                  ((ByteBufferReadable) in).read(inBuffer) : 
+                    ((ReadableByteChannel) in).read(inBuffer);
+              usingByteBufferRead = Boolean.TRUE;
+            } catch (UnsupportedOperationException e) {
+              usingByteBufferRead = Boolean.FALSE;
+            }
+          } else {
             usingByteBufferRead = Boolean.FALSE;
           }
+          if (!usingByteBufferRead) {
+            n = readFromUnderlyingStream(inBuffer);
+          }
         } else {
-          usingByteBufferRead = Boolean.FALSE;
+          if (usingByteBufferRead) {
+            n = isByteBufferReadable ? ((ByteBufferReadable) in).read(inBuffer) : 
+                  ((ReadableByteChannel) in).read(inBuffer);
+          } else {
+            n = readFromUnderlyingStream(inBuffer);
+          }
         }
-        if (!usingByteBufferRead) {
-          n = readFromUnderlyingStream(inBuffer);
+        if (n > 0 || sum == 0) {
+          sum += n;
         }
-      } else {
-        if (usingByteBufferRead) {
-          n = isByteBufferReadable ? ((ByteBufferReadable) in).read(inBuffer) : 
-                ((ReadableByteChannel) in).read(inBuffer);
-        } else {
-          n = readFromUnderlyingStream(inBuffer);
-        }
-      }
-      if (n <= 0) {
-        return n;
+      } while (inBuffer.remaining() > 0 && n > 0);
+      if (sum <= 0) {
+        return sum;
       }
       
-      streamOffset += n; // Read n bytes
+      streamOffset += sum; // Read n bytes
       decrypt(decryptor, inBuffer, outBuffer, padding);
       padding = afterDecryption(decryptor, inBuffer, streamOffset, iv);
       n = Math.min(len, outBuffer.remaining());
@@ -660,7 +670,7 @@ public class CryptoInputStream extends FilterInputStream implements
   private ByteBuffer getBuffer() {
     ByteBuffer buffer = bufferPool.poll();
     if (buffer == null) {
-      buffer = ByteBuffer.allocateDirect(bufferSize);
+      buffer = CryptoStreamUtils.allocateBuffer(bufferSize, physicallyContiguous);
     }
     
     return buffer;
@@ -676,8 +686,8 @@ public class CryptoInputStream extends FilterInputStream implements
   
   /** Forcibly free the direct buffers. */
   private void freeBuffers() {
-    CryptoStreamUtils.freeDB(inBuffer);
-    CryptoStreamUtils.freeDB(outBuffer);
+    CryptoStreamUtils.freeDB(inBuffer, physicallyContiguous);
+    CryptoStreamUtils.freeDB(outBuffer, physicallyContiguous);
     cleanBufferPool();
   }
   
@@ -685,7 +695,7 @@ public class CryptoInputStream extends FilterInputStream implements
   private void cleanBufferPool() {
     ByteBuffer buf;
     while ((buf = bufferPool.poll()) != null) {
-      CryptoStreamUtils.freeDB(buf);
+      CryptoStreamUtils.freeDB(buf, physicallyContiguous);
     }
   }
   

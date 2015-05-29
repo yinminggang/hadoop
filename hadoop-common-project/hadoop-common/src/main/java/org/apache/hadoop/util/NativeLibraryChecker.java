@@ -21,6 +21,7 @@ package org.apache.hadoop.util;
 import org.apache.hadoop.util.NativeCodeLoader;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.crypto.OpensslCipher;
+import org.apache.hadoop.crypto.qat.QatCipher;
 import org.apache.hadoop.io.compress.Lz4Codec;
 import org.apache.hadoop.io.compress.SnappyCodec;
 import org.apache.hadoop.io.compress.bzip2.Bzip2Factory;
@@ -63,9 +64,11 @@ public class NativeLibraryChecker {
     boolean lz4Loaded = nativeHadoopLoaded;
     boolean bzip2Loaded = Bzip2Factory.isNativeBzip2Loaded(conf);
     boolean openSslLoaded = false;
+    boolean qatLoaded = false;
     boolean winutilsExists = false;
 
     String openSslDetail = "";
+    String qatDetail = "";
     String hadoopLibraryName = "";
     String zlibLibraryName = "";
     String snappyLibraryName = "";
@@ -91,6 +94,13 @@ public class NativeLibraryChecker {
         openSslDetail = OpensslCipher.getLibraryName();
         openSslLoaded = true;
       }
+      if (QatCipher.getLoadingFailureReason() != null) {
+        qatDetail = QatCipher.getLoadingFailureReason();
+        qatLoaded = false;
+      } else {
+        qatDetail = QatCipher.getLibraryName();
+        qatLoaded = true;
+      }
       if (lz4Loaded) {
         lz4LibraryName = Lz4Codec.getLibraryName();
       }
@@ -114,6 +124,7 @@ public class NativeLibraryChecker {
     System.out.printf("lz4:     %b %s%n", lz4Loaded, lz4LibraryName);
     System.out.printf("bzip2:   %b %s%n", bzip2Loaded, bzip2LibraryName);
     System.out.printf("openssl: %b %s%n", openSslLoaded, openSslDetail);
+    System.out.printf("qat:     %b %s\n", qatLoaded, qatDetail);
     if (Shell.WINDOWS) {
       System.out.printf("winutils: %b %s%n", winutilsExists, winutilsPath);
     }

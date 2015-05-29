@@ -82,6 +82,8 @@ public class NativeCodeLoader {
    */
   public static native boolean buildSupportsOpenssl();
 
+  public static native boolean buildSupportsQat();
+
   public static native String getLibraryName();
 
 }

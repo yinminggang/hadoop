@@ -31,8 +31,10 @@ import com.google.common.base.Preconditions;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.crypto.CryptoCodec;
+import org.apache.hadoop.crypto.CryptoStreamUtils;
 import org.apache.hadoop.crypto.Decryptor;
 import org.apache.hadoop.crypto.Encryptor;
+import org.apache.hadoop.crypto.qat.QatAesCtrCryptoCodec;
 
 /**
  * A KeyProvider with Cryptographic Extensions specifically for generating
@@ -263,14 +265,20 @@ public class KeyProviderCryptoExtension extends
       Encryptor encryptor = cc.createEncryptor();
       encryptor.init(encryptionKey.getMaterial(), encryptionIV);
       int keyLen = newKey.length;
-      ByteBuffer bbIn = ByteBuffer.allocateDirect(keyLen);
-      ByteBuffer bbOut = ByteBuffer.allocateDirect(keyLen);
+      boolean physicallyContiguous =
+          (cc instanceof QatAesCtrCryptoCodec) ? true : false;
+      ByteBuffer bbIn = CryptoStreamUtils.allocateBuffer(keyLen, physicallyContiguous);
+      ByteBuffer bbOut = CryptoStreamUtils.allocateBuffer(keyLen, physicallyContiguous);
       bbIn.put(newKey);
       bbIn.flip();
       encryptor.encrypt(bbIn, bbOut);
       bbOut.flip();
       byte[] encryptedKey = new byte[keyLen];
       bbOut.get(encryptedKey);    
+
+      CryptoStreamUtils.freeDB(bbIn, physicallyContiguous);
+      CryptoStreamUtils.freeDB(bbOut, physicallyContiguous);
+
       return new EncryptedKeyVersion(encryptionKeyName,
           encryptionKey.getVersionName(), iv,
           new KeyVersion(encryptionKey.getName(), EEK, encryptedKey));
@@ -305,14 +313,20 @@ public class KeyProviderCryptoExtension extends
       final KeyVersion encryptedKV =
           encryptedKeyVersion.getEncryptedKeyVersion();
       int keyLen = encryptedKV.getMaterial().length;
-      ByteBuffer bbIn = ByteBuffer.allocateDirect(keyLen);
-      ByteBuffer bbOut = ByteBuffer.allocateDirect(keyLen);
+      boolean physicallyContiguous =
+          (cc instanceof QatAesCtrCryptoCodec) ? true : false;
+      ByteBuffer bbIn = CryptoStreamUtils.allocateBuffer(keyLen, physicallyContiguous);
+      ByteBuffer bbOut = CryptoStreamUtils.allocateBuffer(keyLen, physicallyContiguous);
       bbIn.put(encryptedKV.getMaterial());
       bbIn.flip();
       decryptor.decrypt(bbIn, bbOut);
       bbOut.flip();
       byte[] decryptedKey = new byte[keyLen];
       bbOut.get(decryptedKey);
+
+      CryptoStreamUtils.freeDB(bbIn, physicallyContiguous);
+      CryptoStreamUtils.freeDB(bbOut, physicallyContiguous);
+
       return new KeyVersion(encryptionKey.getName(), EK, decryptedKey);
     }
 

@@ -25,6 +25,7 @@ import java.security.GeneralSecurityException;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.crypto.qat.QatAesCtrCryptoCodec;
 import org.apache.hadoop.fs.CanSetDropBehind;
 import org.apache.hadoop.fs.Syncable;
 
@@ -76,6 +77,8 @@ public class CryptoOutputStream extends FilterOutputStream implements
   private final byte[] key;
   private final byte[] initIV;
   private byte[] iv;
+
+  private boolean physicallyContiguous;
   
   public CryptoOutputStream(OutputStream out, CryptoCodec codec, 
       int bufferSize, byte[] key, byte[] iv) throws IOException {
@@ -92,8 +95,9 @@ public class CryptoOutputStream extends FilterOutputStream implements
     this.key = key.clone();
     this.initIV = iv.clone();
     this.iv = iv.clone();
-    inBuffer = ByteBuffer.allocateDirect(this.bufferSize);
-    outBuffer = ByteBuffer.allocateDirect(this.bufferSize);
+    physicallyContiguous = (codec instanceof QatAesCtrCryptoCodec) ? true : false;
+    inBuffer = CryptoStreamUtils.allocateBuffer(this.bufferSize, physicallyContiguous);
+    outBuffer = CryptoStreamUtils.allocateBuffer(this.bufferSize, physicallyContiguous);
     this.streamOffset = streamOffset;
     try {
       encryptor = codec.createEncryptor();
@@ -280,7 +284,7 @@ public class CryptoOutputStream extends FilterOutputStream implements
   
   /** Forcibly free the direct buffers. */
   private void freeBuffers() {
-    CryptoStreamUtils.freeDB(inBuffer);
-    CryptoStreamUtils.freeDB(outBuffer);
+    CryptoStreamUtils.freeDB(inBuffer, physicallyContiguous);
+    CryptoStreamUtils.freeDB(outBuffer, physicallyContiguous);
   }
 }

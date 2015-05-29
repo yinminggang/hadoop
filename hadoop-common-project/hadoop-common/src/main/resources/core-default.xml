@@ -1711,6 +1711,14 @@ for ldap providers in the same way as above does.
 </property>
 
 <property>
+  <name>hadoop.security.crypto.qat.configsection</name>
+  <value>HADOOP</value>
+  <description>
+    The configure section name used by hadoop.
+  </description>
+</property>
+
+<property>
   <name>fs.har.impl.disable.cache</name>
   <value>true</value>
   <description>Don't cache 'har' filesystem instances.</description>
